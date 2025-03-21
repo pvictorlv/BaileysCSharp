@@ -10,8 +10,13 @@ using System.Text;
 
 namespace BaileysCSharp.Core.Utils
 {
-    public class NoiseHandler
+    public class NoiseHandler : IDisposable
     {
+        public void Dispose()
+        {
+            OnFrame = null;
+        }
+
         public event EventHandler<BinaryNode> OnFrame;
 
         public NoiseHandler(KeyPair ephemeralKeyPair, DefaultLogger logger)
