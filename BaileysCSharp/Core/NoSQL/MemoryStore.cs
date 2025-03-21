@@ -11,8 +11,13 @@ using static BaileysCSharp.Core.Utils.JidUtils;
 
 namespace BaileysCSharp.Core.NoSQL
 {
-    public class MemoryStore
+    public class MemoryStore : IDisposable
     {
+        public void Dispose() 
+        {
+            database.Dispose();
+        }
+
         private static object locker = new object();
         LiteDB.LiteDatabase database;
 
@@ -67,6 +72,11 @@ namespace BaileysCSharp.Core.NoSQL
             messageList = messages.Where(x => x.RemoteJid != null).GroupBy(x => x.RemoteJid).ToDictionary(x => x.Key, x => x.Select(y => y.ToMessageInfo()).ToList());
             StartTimer();
             //Timer checkPoint = new Timer(OnCheckpoint, null, TimeSpan.Zero, TimeSpan.FromSeconds(30));
+        }
+
+        public void Destroy()
+        {
+            database.Dispose();
         }
 
         private void GroupParticipant_Update(object? sender, GroupParticipantUpdateModel e)
