@@ -10,8 +10,9 @@ using BaileysCSharp.Core.Types;
 
 namespace BaileysCSharp.Core.Signal
 {
-    public class SignalRepository
+    public class SignalRepository : IDisposable
     {
+        public void Dispose() {}
         public SignalStorage Storage { get; set; }
         public SignalRepository(AuthenticationState auth)
         {
