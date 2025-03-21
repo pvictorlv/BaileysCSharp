@@ -18,10 +18,11 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using static BaileysCSharp.Core.Utils.GenericUtils;
 using static BaileysCSharp.Core.WABinary.Constants;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace BaileysCSharp.Core
 {
-    public abstract class BaseSocket
+    public abstract class BaseSocket : IDisposable
     {
         protected ConcurrentDictionary<string, TaskCompletionSource<BinaryNode>> waits = new ConcurrentDictionary<string, TaskCompletionSource<BinaryNode>>();
 
@@ -50,6 +51,43 @@ namespace BaileysCSharp.Core
         public AuthenticationCreds? Creds { get; set; }
         public SocketConfig SocketConfig { get; }
         public BaseKeyStore Keys { get; }
+
+        public void Dispose()
+        {
+            End(new Boom("Connection closed"));
+            WS.Disconnect();
+            keepAliveToken.Cancel();
+
+            WS.Opened -= Client_Opened;
+            WS.Disconnected -= Client_Disconnected;
+            WS.MessageRecieved -= Client_MessageRecieved;
+
+            Store.Destroy();
+            Store.DisposeDb();
+            Logger.Dispose();
+            EV.Dispose();
+            Repository.Dispose();
+            WS.Dispose();
+            Store.Dispose();
+            Keys.Dispose();
+            events.Clear();
+            qrTimerToken?.Cancel();
+            qrTimerToken?.Dispose();
+            MessageRetries.Clear();
+        }
+
+        public void EndConnection(bool destroyStore = false)
+        {
+            End(new Boom("Connection closed"));
+            WS.Disconnect();
+            keepAliveToken.Cancel();
+
+            if (destroyStore)
+            {
+                Store.Destroy();
+                Store.DisposeDb();
+            }
+        }
 
         public string GenerateMessageTag()
         {
@@ -451,6 +489,14 @@ namespace BaileysCSharp.Core
             WS.Opened -= Client_Opened;
             WS.Disconnected -= Client_Disconnected;
             WS.MessageRecieved -= Client_MessageRecieved;
+            EV.Emit(EmitType.Update, new ConnectionState()
+            {
+                Connection = WAConnectionState.Close,
+                LastDisconnect = new LastDisconnect()
+                {
+                    Date = DateTime.Now,
+                }
+            });
         }
 
         private async Task<bool> Emit(string key, BinaryNode e)
@@ -612,6 +658,11 @@ namespace BaileysCSharp.Core
             closed = false;
         }
 
+        public void WSDisconnect()
+        {
+            WS.Disconnect();
+        }
+
         bool closed = false;
         private void BeforeConnect()
         {
@@ -676,6 +727,7 @@ namespace BaileysCSharp.Core
             keepAliveToken?.Cancel();
             qrTimerToken?.Cancel();
 
+            closed = true;
 
             Console.WriteLine($"{reason} - {connectionLost}");
         }

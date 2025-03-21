@@ -20,6 +20,12 @@ namespace BaileysCSharp.Core.Sockets
 {
     public abstract class MessagesRecvSocket : MessagesSendSocket
     {
+        public new void Dispose()
+        {
+            events.Clear();
+            base.Dispose();
+            EV.Connection.Update -= Connection_Update;
+        }
         //public bool SendActiveReceipts;
         public long MaxMsgRetryCount { get; set; } = 5;
         private static Mutex mut = new Mutex();
