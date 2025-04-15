@@ -33,6 +33,12 @@ namespace BaileysCSharp.Core.Sockets
 
     public abstract class MessagesSendSocket : GroupSocket
     {
+        public new void Dispose()
+        {
+            userDevicesCache.Dispose();
+            base.Dispose();
+        }
+
         public MediaConnInfo CurrentMedia { get; set; }
 
         NodeCache userDevicesCache = new NodeCache();

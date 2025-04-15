@@ -21,8 +21,11 @@ namespace BaileysCSharp.Core.Events
 {
 
     public delegate void EventEmitterHandler<T>(T args);
-    public class EventEmitter
+    public class EventEmitter : IDisposable
     {
+        public void Dispose() {
+            Events.Clear();
+        }
         private object locker = new object();
         ConcurrentDictionary<string, IEventStore> Events = new ConcurrentDictionary<string, IEventStore>();
         public BaseSocket Sender { get; }

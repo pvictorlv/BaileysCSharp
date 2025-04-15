@@ -13,12 +13,14 @@ using System.Text.Unicode;
 
 namespace BaileysCSharp.Core.Logging
 {
-    public class DefaultLogger : ILogger
+    public class DefaultLogger : ILogger, IDisposable
     {
         public DefaultLogger()
         {
 
         }
+
+        public void Dispose() { }
 
         private static object locker = new object();
         public LogLevel Level { get; set; }

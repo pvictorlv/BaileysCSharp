@@ -9,8 +9,15 @@ using BaileysCSharp.Core.Models;
 
 namespace BaileysCSharp.Core.Sockets.Client
 {
-    public abstract class AbstractSocketClient
+    public abstract class AbstractSocketClient : IDisposable
     {
+        public virtual void Dispose() {
+            Disconnect();
+            Disconnected = null!;
+            Opened = null!;
+            ConnectFailed = null!;
+            Error = null!;
+        }
         protected AbstractSocketClient(BaseSocket socket)
         {
             Socket = socket;

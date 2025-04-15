@@ -6,6 +6,13 @@ namespace BaileysCSharp.Core.Sockets.Client
     public class WebSocketClient : AbstractSocketClient
     {
         ClientWebSocket WebSocket;
+
+        public override void Dispose()
+        {
+            base.Dispose();
+            WebSocket.Abort();
+            WebSocket?.Dispose();
+        }
         public WebSocketClient(BaseSocket wasocket) : base(wasocket)
         {
         }

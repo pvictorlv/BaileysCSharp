@@ -18,6 +18,12 @@ namespace BaileysCSharp.Core
 {
     public abstract class ChatSocket : BaseSocket
     {
+        public new void Dispose()
+        {
+            processingMutex.Dispose();
+            base.Dispose();
+        }
+
         protected ProcessingMutex processingMutex;
 
         public ChatSocket([NotNull] SocketConfig config) : base(config)
@@ -463,7 +469,7 @@ namespace BaileysCSharp.Core
                     {"xmlns","usync" }
                 },
                 content = new BinaryNode[]
-                {
+                    {
                     new BinaryNode()
                     {
                         tag = "usync",
@@ -489,7 +495,7 @@ namespace BaileysCSharp.Core
                             }
                         }
                     }
-                }
+                    }
             });
 
             var usyncNode = GetBinaryNodeChild(result, "usync");
