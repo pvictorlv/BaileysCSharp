@@ -58,7 +58,51 @@ namespace BaileysCSharp.Core.Sockets
 
         private async Task GroupFetchAllParticipating()
         {
-            ///TODO:
+            var result = await Query(new BinaryNode
+            {
+                tag = "iq",
+                attrs = new Dictionary<string, string>
+                {
+                    { "to", "@g.us" },
+                    { "xmlns", "w:g2" },
+                    { "type", "get" }
+                },
+                content = new BinaryNode[]
+                {
+                    new BinaryNode
+                    {
+                        tag = "participating",
+                        attrs = new Dictionary<string, string>(),
+                        content = new BinaryNode[]
+                        {
+                            new BinaryNode { tag = "participants", attrs = new Dictionary<string, string>() },
+                            new BinaryNode { tag = "description", attrs = new Dictionary<string, string>() }
+                        }
+                    }
+                }
+            });
+
+            var data = new Dictionary<string, GroupMetadataModel>();
+            var communitiesChild = GetBinaryNodeChild(result, "communities");
+            
+            if (communitiesChild != null)
+            {
+                var communities = GetBinaryNodeChildren(communitiesChild, "community");
+                foreach (var communityNode in communities)
+                {
+                    var metadata = ExtractGroupMetaData(new BinaryNode
+                    {
+                        tag = "result",
+                        attrs = new Dictionary<string, string>(),
+                        content = new BinaryNode[] { communityNode }
+                    });
+                    
+                    data[metadata.ID] = metadata;
+                }
+            }
+
+            // Emit groups.update event with all fetched groups
+            EV.Emit(Events.EmitType.GroupsUpdate, data.Values.ToArray());
         }
 
 
@@ -403,5 +447,455 @@ namespace BaileysCSharp.Core.Sockets
         {
             return Store.GetAllGroups();
         }
+
+        #region Community Features
+
+        /// <summary>
+        /// Create a community (parent group)
+        /// </summary>
+        public async Task<GroupMetadataModel> CommunityCreate(string subject, string description, string[] participants)
+        {
+            var key = GenerateMessageID();
+            var result = await GroupQuery("@g.us", "set", new BinaryNode[]
+            {
+                new BinaryNode
+                {
+                    tag = "create",
+                    attrs = new Dictionary<string, string>
+                    {
+                        { "subject", subject },
+                        { "key", key },
+                        { "community", "true" }
+                    },
+                    content = new BinaryNode[]
+                    {
+                        new BinaryNode
+                        {
+                            tag = "description",
+                            attrs = new Dictionary<string, string>
+                            {
+                                { "id", GenerateMessageID() }
+                            },
+                            content = new BinaryNode[]
+                            {
+                                new BinaryNode
+                                {
+                                    tag = "body",
+                                    content = description
+                                }
+                            }
+                        }
+                    }.Concat(participants.Select(p => new BinaryNode
+                    {
+                        tag = "participant",
+                        attrs = new Dictionary<string, string> { { "jid", p } }
+                    })).ToArray()
+                }
+            });
+
+            var metadata = ExtractGroupMetaData(result);
+            Store.AddGroup(new ContactModel
+            {
+                ID = metadata.ID,
+                Name = subject
+            });
+
+            return metadata;
+        }
+
+        /// <summary>
+        /// Link a subgroup to a community
+        /// </summary>
+        public async Task<bool> CommunityLinkSubgroup(string communityJid, string subgroupJid)
+        {
+            var result = await GroupQuery(communityJid, "set", new BinaryNode[]
+            {
+                new BinaryNode
+                {
+                    tag = "subgroup",
+                    attrs = new Dictionary<string, string>
+                    {
+                        { "action", "link" },
+                        { "subgroup_jid", subgroupJid }
+                    }
+                }
+            });
+
+            return GetBinaryNodeChild(result, "subgroup") != null;
+        }
+
+        /// <summary>
+        /// Unlink a subgroup from a community
+        /// </summary>
+        public async Task<bool> CommunityUnlinkSubgroup(string communityJid, string subgroupJid)
+        {
+            var result = await GroupQuery(communityJid, "set", new BinaryNode[]
+            {
+                new BinaryNode
+                {
+                    tag = "subgroup",
+                    attrs = new Dictionary<string, string>
+                    {
+                        { "action", "unlink" },
+                        { "subgroup_jid", subgroupJid }
+                    }
+                }
+            });
+
+            return GetBinaryNodeChild(result, "subgroup") != null;
+        }
+
+        /// <summary>
+        /// Get community metadata including linked subgroups
+        /// </summary>
+        public async Task<GroupMetadataModel> CommunityMetadata(string jid)
+        {
+            var result = await GroupQuery(jid, "get", new BinaryNode[]
+            {
+                new BinaryNode
+                {
+                    tag = "query",
+                    attrs = new Dictionary<string, string>
+                    {
+                        { "request", "interactive" },
+                        { "include_subgroups", "true" }
+                    }
+                }
+            });
+
+            return ExtractGroupMetaData(result);
+        }
+
+        /// <summary>
+        /// Get all linked subgroups for a community
+        /// </summary>
+        public async Task<List<GroupMetadataModel>> CommunityGetSubgroups(string communityJid)
+        {
+            var result = await GroupQuery(communityJid, "get", new BinaryNode[]
+            {
+                new BinaryNode
+                {
+                    tag = "subgroups"
+                }
+            });
+
+            var subgroupsNode = GetBinaryNodeChild(result, "subgroups");
+            if (subgroupsNode == null) return new List<GroupMetadataModel>();
+
+            var subgroupNodes = GetBinaryNodeChildren(subgroupsNode, "subgroup");
+            var subgroups = new List<GroupMetadataModel>();
+
+            foreach (var subgroupNode in subgroupNodes)
+            {
+                var subgroupJid = subgroupNode.getattr("jid");
+                if (!string.IsNullOrEmpty(subgroupJid))
+                {
+                    var metadata = await GroupMetaData(subgroupJid);
+                    subgroups.Add(metadata);
+                }
+            }
+
+            return subgroups;
+        }
+
+        /// <summary>
+        /// Create a subgroup within a community
+        /// </summary>
+        public async Task<GroupMetadataModel> CommunityCreateSubgroup(string communityJid, string subject, string[] participants)
+        {
+            var key = GenerateMessageID();
+            var result = await GroupQuery("@g.us", "set", new BinaryNode[]
+            {
+                new BinaryNode
+                {
+                    tag = "create",
+                    attrs = new Dictionary<string, string>
+                    {
+                        { "subject", subject },
+                        { "key", key },
+                        { "parent", communityJid },
+                        { "default_sub_group", "true" }
+                    },
+                    content = participants.Select(p => new BinaryNode
+                    {
+                        tag = "participant",
+                        attrs = new Dictionary<string, string> { { "jid", p } }
+                    }).ToArray()
+                }
+            });
+
+            var metadata = ExtractGroupMetaData(result);
+            Store.AddGroup(new ContactModel
+            {
+                ID = metadata.ID,
+                Name = subject
+            });
+
+            return metadata;
+        }
+
+        #endregion
+
+        #region Group Management Enhancements
+
+        /// <summary>
+        /// Update group profile picture
+        /// </summary>
+        public async Task<string> GroupUpdateProfilePicture(string jid, byte[] imageData)
+        {
+            var mediaUploadData = await GetRawMediaUploadData(imageData, "profile-pic");
+            var fileSha256B64 = Convert.ToBase64String(mediaUploadData.FileSha256);
+
+            var uploadResult = await WaUploadToServer(mediaUploadData.FilePath, new MediaUploadOptions
+            {
+                FileEncSha256B64 = fileSha256B64,
+                MediaType = "profile-pic"
+            });
+
+            var result = await GroupQuery(jid, "set", new BinaryNode[]
+            {
+                new BinaryNode
+                {
+                    tag = "picture",
+                    attrs = new Dictionary<string, string>
+                    {
+                        { "id", uploadResult.Fbid.ToString() },
+                        { "type", "image" }
+                    }
+                }
+            });
+
+            return uploadResult.Fbid.ToString();
+        }
+
+        /// <summary>
+        /// Remove group profile picture
+        /// </summary>
+        public async Task<bool> GroupRemoveProfilePicture(string jid)
+        {
+            var result = await GroupQuery(jid, "set", new BinaryNode[]
+            {
+                new BinaryNode
+                {
+                    tag = "picture",
+                    attrs = new Dictionary<string, string>
+                    {
+                        { "delete", "true" }
+                    }
+                }
+            });
+
+            return true;
+        }
+
+        /// <summary>
+        /// Promote participants to admins
+        /// </summary>
+        public async Task GroupPromoteParticipants(string jid, string[] participants)
+        {
+            await GroupParticipantsUpdate(jid, participants, ParticipantAction.Promote);
+        }
+
+        /// <summary>
+        /// Demote participants from admins
+        /// </summary>
+        public async Task GroupDemoteParticipants(string jid, string[] participants)
+        {
+            await GroupParticipantsUpdate(jid, participants, ParticipantAction.Demote);
+        }
+
+        /// <summary>
+        /// Add participants to group
+        /// </summary>
+        public async Task GroupAddParticipants(string jid, string[] participants)
+        {
+            await GroupParticipantsUpdate(jid, participants, ParticipantAction.Add);
+        }
+
+        /// <summary>
+        /// Remove participants from group
+        /// </summary>
+        public async Task GroupRemoveParticipants(string jid, string[] participants)
+        {
+            await GroupParticipantsUpdate(jid, participants, ParticipantAction.Remove);
+        }
+
+        /// <summary>
+        /// Make group announcement only (only admins can send messages)
+        /// </summary>
+        public async Task GroupSetAnnouncement(string jid, bool announcement = true)
+        {
+            await GroupSettingUpdate(jid, announcement ? GroupSetting.Announcement : GroupSetting.Not_Announcement);
+        }
+
+        /// <summary>
+        /// Lock group info (only admins can edit group info)
+        /// </summary>
+        public async Task GroupSetLocked(string jid, bool locked = true)
+        {
+            await GroupSettingUpdate(jid, locked ? GroupSetting.Locked : GroupSetting.Unlocked);
+        }
+
+        /// <summary>
+        /// Set who can add participants to the group
+        /// </summary>
+        public async Task GroupSetMemberAddMode(string jid, MemberAddMode mode)
+        {
+            await GroupMemberAddMode(jid, mode);
+        }
+
+        /// <summary>
+        /// Enable or disable join approval mode
+        /// </summary>
+        public async Task GroupSetJoinApprovalMode(string jid, MembershipApprovalMode mode)
+        {
+            await GroupJoinApprovalMode(jid, mode);
+        }
+
+        /// <summary>
+        /// Approve join requests
+        /// </summary>
+        public async Task GroupApproveJoinRequests(string jid, string[] participants)
+        {
+            await GroupRequestParticipantsUpdate(jid, participants, "approve");
+        }
+
+        /// <summary>
+        /// Reject join requests
+        /// </summary>
+        public async Task GroupRejectJoinRequests(string jid, string[] participants)
+        {
+            await GroupRequestParticipantsUpdate(jid, participants, "reject");
+        }
+
+        /// <summary>
+        /// Get pending join requests
+        /// </summary>
+        public async Task<GroupMetadataModel> GroupGetJoinRequests(string jid)
+        {
+            return await GroupRequestParticipantsList(jid);
+        }
+
+        /// <summary>
+        /// Set ephemeral messages duration
+        /// </summary>
+        public async Task GroupSetEphemeralDuration(string jid, ulong expirationInSeconds)
+        {
+            await GroupToggleEphemeral(jid, expirationInSeconds);
+        }
+
+        /// <summary>
+        /// Disable ephemeral messages
+        /// </summary>
+        public async Task GroupDisableEphemeral(string jid)
+        {
+            await GroupToggleEphemeral(jid, 0);
+        }
+
+        /// <summary>
+        /// Get group invite code
+        /// </summary>
+        public async Task<string> GroupGetInviteCode(string jid)
+        {
+            return await GroupInviteCode(jid);
+        }
+
+        /// <summary>
+        /// Revoke group invite code
+        /// </summary>
+        public async Task<string> GroupRevokeInvite(string jid)
+        {
+            return await GroupRevokeInvite(jid);
+        }
+
+        /// <summary>
+        /// Accept group invite
+        /// </summary>
+        public async Task<string> GroupAcceptInviteCode(string code)
+        {
+            return await GroupAcceptInvite(code);
+        }
+
+        /// <summary>
+        /// Get group invite info without joining
+        /// </summary>
+        public async Task<GroupMetadataModel> GroupGetInviteInfo(string code)
+        {
+            return await GroupGetInviteInfo(code);
+        }
+
+        /// <summary>
+        /// Leave multiple groups
+        /// </summary>
+        public async Task GroupLeaveMultiple(string[] groupIds)
+        {
+            foreach (var groupId in groupIds)
+            {
+                await GroupLeave(groupId);
+            }
+        }
+
+        /// <summary>
+        /// Mute group for a specified duration
+        /// </summary>
+        public async Task GroupMute(string jid, ulong durationInSeconds)
+        {
+            var result = await GroupQuery(jid, "set", new BinaryNode[]
+            {
+                new BinaryNode
+                {
+                    tag = "mute",
+                    attrs = new Dictionary<string, string>
+                    {
+                        { "duration", durationInSeconds.ToString() }
+                    }
+                }
+            });
+        }
+
+        /// <summary>
+        /// Unmute group
+        /// </summary>
+        public async Task GroupUnmute(string jid)
+        {
+            var result = await GroupQuery(jid, "set", new BinaryNode[]
+            {
+                new BinaryNode
+                {
+                    tag = "mute",
+                    attrs = new Dictionary<string, string>
+                    {
+                        { "duration", "0" }
+                    }
+                }
+            });
+        }
+
+        /// <summary>
+        /// Get all groups the user is participating in
+        /// </summary>
+        public async Task<List<GroupMetadataModel>> GroupFetchAll()
+        {
+            await GroupFetchAllParticipating();
+            return GetAllGroups().Select(g => new GroupMetadataModel
+            {
+                ID = g.ID,
+                Subject = g.Name
+            }).ToList();
+        }
+
+        /// <summary>
+        /// Search for groups by name or description
+        /// </summary>
+        public async Task<List<GroupMetadataModel>> GroupSearch(string query)
+        {
+            var allGroups = await GroupFetchAll();
+            return allGroups.Where(g => 
+                g.Subject?.Contains(query, StringComparison.OrdinalIgnoreCase) == true ||
+                g.Desc?.Contains(query, StringComparison.OrdinalIgnoreCase) == true
+            ).ToList();
+        }
+
+        #endregion
     }
 }

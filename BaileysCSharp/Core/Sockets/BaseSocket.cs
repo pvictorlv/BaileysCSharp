@@ -763,8 +763,239 @@ namespace BaileysCSharp.Core
         {
             Repository = SocketConfig.MakeSignalRepository(EV);
             Store = SocketConfig.MakeStore(EV, Logger);
-
         }
+
+        #region Authentication Methods
+
+        private AuthenticationSession? _currentSession;
+        private CancellationTokenSource? _qrCancellationTokenSource;
+
+        /// <summary>
+        /// Start QR code authentication process
+        /// </summary>
+        public async Task<AuthenticationSession> StartQRAuthentication()
+        {
+            // Cancel any existing session
+            _qrCancellationTokenSource?.Cancel();
+            _qrCancellationTokenSource = new CancellationTokenSource();
+
+            // Create new authentication session
+            _currentSession = new AuthenticationSession();
+            
+            // Start QR code refresh timer
+            StartQRRefreshTimer(_qrCancellationTokenSource.Token);
+
+            Logger.Info("Started QR authentication process");
+            
+            return _currentSession;
+        }
+
+        /// <summary>
+        /// Start pairing code authentication process
+        /// </summary>
+        public async Task<string> StartPairingCodeAuthentication()
+        {
+            var pairingCode = QRUtils.GeneratePairingCode();
+            
+            // Store pairing code in credentials
+            if (Creds != null)
+            {
+                Creds.PairingCode = pairingCode;
+                EV.Emit(EmitType.Update, Creds);
+            }
+
+            Logger.Info($"Started pairing code authentication with code: {pairingCode}");
+            
+            return pairingCode;
+        }
+
+        /// <summary>
+        /// Validate and process pairing code
+        /// </summary>
+        public async Task<bool> ValidatePairingCode(string pairingCode)
+        {
+            if (!QRUtils.ValidatePairingCode(pairingCode))
+            {
+                Logger.Warning($"Invalid pairing code format: {pairingCode}");
+                return false;
+            }
+
+            if (Creds?.PairingCode != pairingCode)
+            {
+                Logger.Warning($"Pairing code mismatch. Expected: {Creds?.PairingCode}, Received: {pairingCode}");
+                return false;
+            }
+
+            Logger.Info("Pairing code validated successfully");
+            return true;
+        }
+
+        /// <summary>
+        /// Restore session from saved credentials
+        /// </summary>
+        public async Task<bool> RestoreSession()
+        {
+            if (Creds == null || Creds.Me == null)
+            {
+                Logger.Info("No saved credentials found for session restoration");
+                return false;
+            }
+
+            try
+            {
+                Logger.Info($"Attempting to restore session for user: {Creds.Me.ID}");
+                
+                // Initialize stores with restored credentials
+                InitStores();
+                
+                // Attempt to connect and validate session
+                MakeSocket();
+                
+                Logger.Info("Session restoration initiated");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Failed to restore session");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Logout and clear session
+        /// </summary>
+        public async Task Logout()
+        {
+            try
+            {
+                Logger.Info("Logging out and clearing session");
+
+                // Disconnect if connected
+                if (WS.IsConnected)
+                {
+                    WSDisconnect();
+                }
+
+                // Clear credentials
+                if (Creds != null)
+                {
+                    Creds.Me = null;
+                    Creds.Registered = false;
+                    Creds.PairingCode = null;
+                    
+                    // Generate new keys for next session
+                    AuthenticationUtils.Randomize(Creds);
+                    
+                    EV.Emit(EmitType.Update, Creds);
+                }
+
+                // Clear stores
+                Keys?.Clear();
+                Store?.Dispose();
+
+                Logger.Info("Logout completed successfully");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Error during logout");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Get current authentication status
+        /// </summary>
+        public AuthenticationStatus GetAuthenticationStatus()
+        {
+            if (Creds == null)
+            {
+                return AuthenticationStatus.NotInitialized;
+            }
+
+            if (Creds.Me == null)
+            {
+                return AuthenticationStatus.NotAuthenticated;
+            }
+
+            if (!Creds.Registered)
+            {
+                return AuthenticationStatus.NotRegistered;
+            }
+
+            if (WS.IsConnected)
+            {
+                return AuthenticationStatus.Connected;
+            }
+
+            return AuthenticationStatus.Authenticated;
+        }
+
+        /// <summary>
+        /// Refresh QR code
+        /// </summary>
+        private void RefreshQRCode()
+        {
+            if (_currentSession == null || _currentSession.IsExpired)
+            {
+                _currentSession = new AuthenticationSession();
+            }
+
+            // Emit QR code event
+            var qrCode = _currentSession.GetQRCode();
+            EV.Emit(EmitType.Update, new ConnectionState
+            {
+                Connection = WAConnectionState.Connecting,
+                QR = qrCode
+            });
+
+            Logger.Info("QR code refreshed");
+        }
+
+        /// <summary>
+        /// Start QR code refresh timer
+        /// </summary>
+        private void StartQRRefreshTimer(CancellationToken cancellationToken)
+        {
+            Task.Run(async () =>
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    RefreshQRCode();
+                    
+                    try
+                    {
+                        // Refresh every 20 seconds
+                        await Task.Delay(20000, cancellationToken);
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        break;
+                    }
+                }
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Handle successful authentication
+        /// </summary>
+        private void OnAuthenticationSuccess()
+        {
+            Logger.Info("Authentication successful");
+
+            // Cancel QR code timer
+            _qrCancellationTokenSource?.Cancel();
+            _currentSession = null;
+
+            // Clear pairing code
+            if (Creds != null)
+            {
+                Creds.PairingCode = null;
+                EV.Emit(EmitType.Update, Creds);
+            }
+        }
+
+        #endregion
+
         public List<ContactModel> GetAllContact()
         {
             return Store.GetAllContact();

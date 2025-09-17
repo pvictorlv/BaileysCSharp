@@ -1,0 +1,122 @@
+
+using BaileysCSharp.Core.WABinary;
+using Google.Protobuf;
+using Proto;
+using System.Collections.Generic;
+
+namespace BaileysCSharp.Core.Models.Business
+{
+    public class BusinessProfile
+    {
+        public string? Description { get; set; }
+        public string? Email { get; set; }
+        public BusinessHours? BusinessHours { get; set; }
+        public List<string> Websites { get; set; } = new();
+        public string? Category { get; set; }
+        public string? Wid { get; set; }
+        public string? Address { get; set; }
+        public string? CoverPhotoId { get; set; }
+    }
+
+    public class BusinessHours
+    {
+        public string? Timezone { get; set; }
+        public List<BusinessHoursConfig> Config { get; set; } = new();
+    }
+
+    public class BusinessHoursConfig
+    {
+        public string DayOfWeek { get; set; } = string.Empty;
+        public string Mode { get; set; } = string.Empty;
+        public int? OpenTimeInMinutes { get; set; }
+        public int? CloseTimeInMinutes { get; set; }
+    }
+
+    public class Product
+    {
+        public string? Id { get; set; }
+        public string? Name { get; set; }
+        public string? Description { get; set; }
+        public string? RetailerId { get; set; }
+        public string? Url { get; set; }
+        public string? ImageUrl { get; set; }
+        public decimal? Price { get; set; }
+        public string? Currency { get; set; }
+        public bool? IsHidden { get; set; }
+        public int? CommodityCode { get; set; }
+        public string? ProductId { get; set; }
+    }
+
+    public class ProductCollection
+    {
+        public string? Id { get; set; }
+        public string? Name { get; set; }
+        public List<string> ProductIds { get; set; } = new();
+        public int? ProductCount { get; set; }
+    }
+
+    public class Order
+    {
+        public string? Id { get; set; }
+        public string? ProductId { get; set; }
+        public string? ProductName { get; set; }
+        public int? Quantity { get; set; }
+        public decimal? TotalAmount { get; set; }
+        public string? Currency { get; set; }
+        public string? Status { get; set; }
+        public string? CustomerId { get; set; }
+        public string? CustomerName { get; set; }
+        public System.DateTime? OrderDate { get; set; }
+    }
+
+    public class Catalog
+    {
+        public string? Id { get; set; }
+        public string? Name { get; set; }
+        public List<Product> Products { get; set; } = new();
+        public List<ProductCollection> Collections { get; set; } = new();
+        public int? ProductCount { get; set; }
+        public System.DateTime? LastUpdated { get; set; }
+    }
+
+    public class UpdateBusinessProfileProps
+    {
+        public string? Address { get; set; }
+        public string? Email { get; set; }
+        public string? Description { get; set; }
+        public List<string>? Websites { get; set; }
+        public BusinessHours? Hours { get; set; }
+    }
+
+    public class ProductCreateOptions
+    {
+        public required string Name { get; set; }
+        public string? Description { get; set; }
+        public string? ImageUrl { get; set; }
+        public decimal? Price { get; set; }
+        public string? Currency { get; set; }
+        public string? Url { get; set; }
+        public bool? IsHidden { get; set; }
+        public int? CommodityCode { get; set; }
+    }
+
+    public class ProductUpdateOptions
+    {
+        public required string ProductId { get; set; }
+        public string? Name { get; set; }
+        public string? Description { get; set; }
+        public string? ImageUrl { get; set; }
+        public decimal? Price { get; set; }
+        public string? Currency { get; set; }
+        public string? Url { get; set; }
+        public bool? IsHidden { get; set; }
+        public int? CommodityCode { get; set; }
+    }
+
+    public class GetCatalogOptions
+    {
+        public int? Limit { get; set; }
+        public string? Cursor { get; set; }
+        public bool? IncludeHidden { get; set; }
+    }
+}
